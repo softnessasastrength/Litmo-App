@@ -1,0 +1,351 @@
+# Litmo dual build modes — Maximum vs App Store Safe
+
+**Status:** canonical  
+**ADR:** [`adr/0060-dual-build-modes.md`](adr/0060-dual-build-modes.md)  
+**Code:** `app/config/buildMode.ts`, `features.ts`, `copy/*`, `runtime.ts`, `app.config.ts`, `eas.json`
+
+> One repository. Two binaries. Same consent engine. Different skin and optional RF.
+
+---
+
+## 1. The problem this solves
+
+Litmo’s **Maximum** product is intentionally uncompromising:
+
+- Soft Signal as sacred, unilateral, zero-dwell stop  
+- Expanded body maps, soft limits, safewords, aftercare  
+- Proximity radar, NFC careful-connect, Multipeer share  
+- Hardware Soft Signal contracts  
+- Autistic-depth copy and diagnostics  
+
+That is correct for **macOS**, **Linux**, and **internal** iOS development.
+
+The **public iOS App Store** rejects or delays apps that look like continuous nearby radio, NFC social, crisis tools, or sexually coded products. We will not fork the consent engine. We **compile-time tame** presentation and optional surfaces for store binaries while leaving Maximum source in the tree.
+
+---
+
+## 2. Platform law + environment axis
+
+| Platform | Default mode | Compile flags |
+| -------- | ------------ | ------------- |
+| **macOS** | **MAXIMUM_MODE** | `MAXIMUM_MODE` / `maximum` |
+| **Linux** | **MAXIMUM_MODE** | same |
+| **iOS** | **APP_STORE_SAFE** | `APP_STORE_SAFE` / `app_store` |
+
+Orthogonal environment: `EXPO_PUBLIC_APP_ENV` = development · staging · production.
+
+| Host | Default mode | Notes |
+| ---- | ------------ | ----- |
+| Mac Expo / native | MAXIMUM | Full experience |
+| Linux CI | MAXIMUM | Full tests |
+| Any iOS (unset env) | **APP_STORE_SAFE** | Auto-tame |
+| EAS `development` / `device_beta` | MAXIMUM (explicit env) | Internal full phone |
+| EAS `production` / `preview` | APP_STORE_SAFE | Store path |
+| EAS `production_maximum_internal` | MAXIMUM | Internal; do not submit |
+
+Full architecture + consent flow tables: [`DUAL_MODE_ARCHITECTURE.md`](DUAL_MODE_ARCHITECTURE.md).  
+Swift SPM: `packages/LitmoBuildMode/`.
+
+---
+
+## 3. How the switch works (compile-time)
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│  eas.json profile / shell env                               │
+│    EXPO_PUBLIC_LITMO_BUILD_MODE=maximum|app_store           │
+│    EXPO_PUBLIC_APP_ENV=development|staging|production       │
+│    EXPO_PUBLIC_LITMO_PLATFORM=ios|macos|linux|…             │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  app.config.ts                                              │
+│    resolveBuildMode() → stamps process.env + extra.*        │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+                            ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Metro bundles JS                                           │
+│    import { features, softSignalCopy } from config/*        │
+│    IS_APP_STORE_BUILD ? FEATURES_APP_STORE : FEATURES_MAX   │
+└───────────────────────────┬─────────────────────────────────┘
+                            │
+              ┌─────────────┴─────────────┐
+              ▼                           ▼
+     Maximum Mode UI              App Store Safe UI
+     (full RF + sacred copy)      (gated RF + calm copy)
+              │                           │
+              └─────────────┬─────────────┘
+                            ▼
+              SAME safety core
+              Soft Signal stop · dual seal · age gate · fail closed
+```
+
+### Resolution algorithm (`resolveBuildMode`) — platform-primary
+
+Source of truth: `app/config/buildMode.ts` · ADR 0060 (G11 reconciled).
+
+1. If `EXPO_PUBLIC_LITMO_BUILD_MODE` is set → parse (aliases: `max`, `store`, `review`, …). Invalid → **throw**. Explicit env always wins (EAS pins; internal Maximum iOS).  
+2. Else if platform is **iOS family** (`ios` | `iphoneos` | `iphonesimulator` | `ipados` | `tvos`) → `app_store`  
+   (including development iOS — staging vs production does **not** flip mode).  
+3. Else (macOS, Linux, Android, web, unknown) → `maximum`.
+
+**There is no in-app toggle** to “upgrade” an App Store binary to Maximum. That would violate store integrity and Review rules. Ship a different profile.
+
+---
+
+## 4. Folder structure
+
+```text
+app/
+  config/
+    buildMode.ts          # resolveBuildMode, LITMO_BUILD_MODE, IS_* flags
+    buildMode.test.ts
+    features.ts           # FEATURES_MAXIMUM | FEATURES_APP_STORE | features
+    runtime.ts            # runtimeConfig (env + mode + features)
+    copy/
+      types.ts            # ModeCopyPack shapes
+      maximumCopy.ts      # full autistic voice
+      appStoreCopy.ts     # review-sanitized voice
+      index.ts            # modeCopy / softSignalCopy / entryCopy / welcomeCopy
+  app.config.ts           # stamps mode into Expo extra + env
+  eas.json                # profile pins
+  app/
+    index.tsx             # welcomeCopy
+    entry.tsx             # entryCopy + demo gate
+    proximity/index.tsx   # features.proximityRadar gate
+    nfc/connect.tsx       # features.nfcCarefulConnect gate
+  lib/
+    softSignalCore.ts     # SOFT_SIGNAL_COPY ← mode-aware pack
+docs/
+  BUILD_MODES.md          # this file
+  adr/0060-dual-build-modes.md
+macos/                    # native Mac stays Maximum (ADR 0045)
+```
+
+---
+
+## 5. Feature matrix (summary)
+
+| Feature | Maximum | App Store |
+| ------- | ------- | --------- |
+| Soft Signal stop | ✅ | ✅ |
+| Dual seal / consent engine | ✅ | ✅ |
+| Age gate | ✅ | ✅ |
+| Profile ≠ consent | ✅ | ✅ |
+| Fail-closed boundaries | ✅ | ✅ |
+| Expanded body map + soft_limit | ✅ | ✅ |
+| Soft Signal practice + private log | ✅ | ✅ |
+| Trauma toolkit (privacy cover) | ✅ | ✅ |
+| Proximity radar RF UI | ✅ | ❌ |
+| NFC careful-connect UI | ✅ | ❌ |
+| Multipeer local share | ✅ | ❌ |
+| Hardware Soft Signal bridge | ✅ | ❌ |
+| Diagnostics panel | ✅ | ❌ |
+| Demo mode surface | ✅ | ❌ |
+| Sacred Soft Signal copy | ✅ | ❌ (calm end-session copy) |
+| Build mode badge on entry | ✅ | ❌ |
+| Discover / Match / sessions / Consent Snapshot mutual seal | ✅ | ❌ (needs a real second paired account) |
+| Relationship Model, Reconcile, Conflict-sim, Need-Scared, Containment Hub, Learning Lived Lessons | ✅ | ❌ (phase-2: presupposes an existing relationship) |
+| Too Much, Attachment Repair Cathedral, first guided ritual, Learning Foundations | ✅ | ✅ (core v1: solo self-understanding) |
+| Second guided ritual "Two Maps, One Table" (bringing someone in) | ✅ | ❌ (phase-2: presupposes an existing relationship) |
+
+Full table: `app/config/features.ts` · delta: `featureDelta()`.
+
+**v1 App Store Safe scope (2026-07-14):** solo self-understanding only —
+onboarding, Guided Learning Foundations, Touch Language, Nervous System
+Weather, Soft Signal, Too Much / Fear of Abandonment, Attachment Repair
+Cathedral, and the first guided ritual (`docs/FIRST_RITUAL.md`). Gated behind
+`partnerPairingFeatures` (real second-account features) and
+`pairedGrowthContent` (relationship-in-friction content) in `features.ts`.
+
+---
+
+## 6. Copy dual-pack
+
+| Surface | Maximum | App Store |
+| ------- | ------- | --------- |
+| Soft Signal button | “Soft Signal — end now” | “End session now” |
+| Soft Signal banner | “stop is sacred” | “You can end at any time” |
+| Welcome title | “Connection can be soft.” | “Clear boundaries. Soft connection.” |
+| Entry | Full prototype honesty | Calmer adult platonic framing |
+
+**Both packs still:**
+
+- Require no explanation to stop  
+- State not emergency/crisis services  
+- Forbid swipe-to-agree / safety score language  
+
+---
+
+## 7. EAS profiles (how you actually build)
+
+| Profile | Mode | Use |
+| ------- | ---- | --- |
+| `development` | maximum | Dev client, full phone |
+| `device_beta` | maximum | Internal full IPA |
+| `preview_simulator` | maximum | Simulator full |
+| `preview` | **app_store** | Staging-shaped review candidate · iOS scheme `Litmodevelopment-AppStoreSafe` |
+| `production` | **app_store** | **App Store / TestFlight store path** · iOS scheme `Litmodevelopment-AppStoreSafe` |
+| `production_maximum_internal` | maximum | Internal production-env full (not submit) |
+| `maximum_linux_ci` | maximum | Linux CI env stamp |
+
+```bash
+# App Store Safe (iOS store)
+cd app && eas build --profile production --platform ios
+
+# Maximum internal iOS
+cd app && eas build --profile device_beta --platform ios
+
+# Local Expo (Maximum on Mac by default)
+cd app && EXPO_PUBLIC_LITMO_BUILD_MODE=maximum npx expo start
+
+# Force App Store skin locally (for copy QA)
+cd app && EXPO_PUBLIC_LITMO_BUILD_MODE=app_store EXPO_PUBLIC_LITMO_PLATFORM=ios npx expo start
+```
+
+---
+
+## 8. Screen integration pattern
+
+```ts
+import { runtimeConfig } from "../config/runtime";
+import { softSignalCopy } from "../config/copy"; // or SOFT_SIGNAL_COPY from softSignalCore
+
+if (!runtimeConfig.features.proximityRadar) {
+  return <UnavailableInThisBuild />;
+}
+
+// Soft Signal still always available when softSignalStop (always true):
+<SoftSignalButton onPress={...} />
+```
+
+**Rules for new features**
+
+1. Add a key to `LitmoFeatureFlags`.  
+2. Set Maximum default (usually `true`).  
+3. Explicitly choose App Store value.  
+4. Gate UI; do not delete Maximum source.  
+5. If user-facing strings, add both copy packs.  
+6. Document in this file’s matrix.  
+
+---
+
+## 9. What mode must NEVER do
+
+| Forbidden | Why |
+| --------- | --- |
+| Disable Soft Signal stop | Constitution |
+| Disable age gate in production | Adults only |
+| Treat App Store mode as “less consensual” | Same dual-seal law |
+| Runtime unlock Maximum inside store binary | Review + integrity |
+| Two consent engines | Drift = harm |
+| Ship store profile without `BUILD_MODE=app_store` | eas.json pins; CI should assert |
+
+---
+
+## 10. macOS / Linux
+
+- **Native macOS** (`macos/`) remains Maximum participant shell (ADR 0045).  
+- **Linux CI** runs Maximum tests; use `maximum_linux_ci` env stamp when exporting web/CI artifacts.  
+- **Expo on Mac** defaults to Maximum unless you force `app_store` for copy QA.
+
+---
+
+## 11. Verification
+
+```bash
+cd app && npx tsx --test config/buildMode.test.ts
+# Also: softSignalCore tests (copy must still ban reason-to-stop)
+```
+
+Assert:
+
+- Safety core true in both matrices  
+- RF/NFC off in App Store  
+- Maximum Soft Signal button contains “Soft Signal”; App Store contains “End session”  
+- Both packs mention no explanation / not emergency  
+
+---
+
+## 12. Honest limitations
+
+- App Store Safe is **not** a legal guarantee of App Review approval.  
+- **Entitlement/Info.plist stripping (2026-07-14, closed):** the App Store Safe
+  archive path (`eas.json` `production`/`preview` profiles) now builds via a
+  dedicated Xcode scheme, `Litmodevelopment-AppStoreSafe`, and build
+  configuration, `Release-AppStoreSafe`, pointing `INFOPLIST_FILE` at
+  `ios/Litmodevelopment/Info-AppStoreSafe.plist` — a copy of the main
+  Info.plist with `NFCReaderUsageDescription`,
+  `com.apple.developer.nfc.readersession.formats`,
+  `NSLocalNetworkUsageDescription`, and `NSBonjourServices` removed, matching
+  `FEATURES_APP_STORE`'s `nfcCarefulConnect`/`localMultipeerShare: false`.
+  Maximum Mode's scheme/configuration/Info.plist are untouched. Verified via
+  `xcodebuild -list`, `xcodebuild -showBuildSettings`, **and an actual
+  attempted compile** (2026-07-14): the first attempt genuinely failed —
+  `module map file ... not found` for every Pod target, because
+  `Pods.xcodeproj` only mirrors build configurations it's explicitly told
+  about via the Podfile's `project` directive, and adding
+  `Release-AppStoreSafe` to the app project alone left every Pod target
+  still Debug/Release-only. Fixed by adding the configuration mapping to
+  `app/ios/Podfile` and re-running `pod install` (regenerated a real
+  `Pods-Litmodevelopment.release-appstoresafe.xcconfig`, confirmed via a
+  clean, minimal git diff). A second build attempt confirmed the fix: the
+  module-map error was completely gone and real compilation of real Expo
+  modules was underway. **Not fully verified end-to-end** — the second
+  attempt failed on this machine's disk being at 97% capacity (only 1.1GB
+  free before cleanup), an environment constraint unrelated to the fix
+  itself. A full clean build, a signed archive, and App Store Connect
+  submission remain the founder's to run, ideally after freeing disk space.
+- **Still open:** the native NFC/Multipeer modules themselves remain linked
+  into the App Store Safe binary (compiled but unreachable — the JS feature
+  flags never call them). Fully excluding them would need conditional Podfile
+  logic and a separate `pod install` per build mode, which needs a real
+  CocoaPods run to verify and hasn't been attempted here. Apple's review risk
+  from an unused *linked framework* alone is low compared to a declared
+  *entitlement/usage-description*, which is the part this fix addresses.
+- Maximum source remains readable in the open repo — that is intentional for stewardship.  
+- **Partner-name leak into the shared bundle (2026-07-14, closed):** the
+  `pairedGrowthContent` flag (added earlier) hid the *Containment Hub entry
+  point* and *home screen shortcuts* for relationship-in-friction protocols,
+  but 15 of those leaf screens (`relationship-model`, `flood`, `pre-renn`,
+  `aftercare`, `apology-craft`, `field-notes`, `debrief-lab`, `reconcile`,
+  `parallel-play`, `relationship-constitution`, `need-scared`, `interest-re`,
+  `conflict-sim`, `not-ready-yet`, `morning-cuddle`, `spooning`) never
+  self-gated — only `too-much` and `attachment-repair` did. Direct
+  navigation (deep link, saved route, App Review probing the route table)
+  would have fully rendered them in an App Store Safe build regardless of
+  the flag. All 15 now fail closed with `FeatureUnavailable`, matching the
+  existing `too-much`/`attachment-repair` pattern — same fix applied
+  consistently, not a new mechanism.
+  Separately, several of those screens' shared copy constants
+  (`REPAIR_COPY`, `TOO_MUCH_COPY`, `NEED_SCARED_COPY`, `SPOONING_COPY`,
+  `INTEREST_COPY`, `CONFLICT_COPY`, plus fields in `aftercareCore.ts` and
+  `notReadyYetCore.ts`) hardcoded the founder's real partner's real name
+  directly into a `purpose`/`blurb` string. Three of those (`REPAIR_COPY`,
+  `TOO_MUCH_COPY`, `NEED_SCARED_COPY`) already ran `.replace("Renn", ...)`
+  at render time but the source string still had the real name baked in —
+  meaning it shipped as a literal in the JS bundle for *both* build modes,
+  reachable via `strings`/decompilation regardless of what the UI shows.
+  Three more (`SPOONING_COPY`, `INTEREST_COPY`, `CONFLICT_COPY`, plus the
+  `conflict-sim` solo-rehearsal `blurb`) rendered the name directly with no
+  substitution at all — a straight bug, not just a bundle-string risk. All
+  eight source strings now use a `{{PARTNER}}` placeholder swapped for
+  `modeCopy.partnerName` at render time, so the real name never compiles
+  into the bundle in either build mode. Regression tests added to
+  `attachmentRepairCore.test.ts`, `tooMuchCore.test.ts`,
+  `needScaredCore.test.ts` assert the placeholder is present and the real
+  name is not.
+  **Explicitly not addressed:** the "Pre-Renn Gate" feature itself — its
+  file name (`preRennGateCore.ts`), route (`/pre-renn`), and several type/
+  function names (`PreRennDraft`, `sealPreRenn`, etc.) — keeps the real
+  name baked into the feature's identity across ~10 files. That's a
+  structural rename (route path, possibly stored data shape expectations),
+  not a copy-pack swap, and changes real behavior for the founder's own
+  Maximum build if done carelessly. Deliberately left alone rather than
+  rushed; flagged here so it isn't mistaken for "fully closed."
+
+---
+
+*Touch is not a transaction — it is a language. The engine stays sacred; the store skin stays calm.*
